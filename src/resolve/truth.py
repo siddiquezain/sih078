@@ -110,6 +110,14 @@ def fetch_imerg_daily(
             ds = xr.open_dataset(fpath, group="Grid", engine="netcdf4")
             precip = ds["precipitation"]
             daily = (precip * 24.0).squeeze()  # mm/hr → mm/day
+            # GPM_3IMERGDF V07: precipitation is in mm/hr; * 24 → mm/day.
+            # Verify: if any cell exceeds 1500 mm/day, something is wrong.
+            daily_max = float(daily.max())
+            if daily_max > 1500:
+                logger.warning(
+                    "IMERG daily max = %.0f mm; expected < 1500 mm. "
+                    "Check units in %s", daily_max, fpath
+                )
             daily = daily.sel(
                 lat=slice(lat_min, lat_max),
                 lon=slice(lon_min, lon_max),

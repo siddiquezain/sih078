@@ -23,7 +23,7 @@ def _git_commit() -> str:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
             stderr=subprocess.DEVNULL,
-            cwd="/Users/zain/Personal/sih078",
+            cwd=str(Path(__file__).resolve().parents[2]),
         ).decode().strip()
     except Exception:
         return "unknown"

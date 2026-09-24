@@ -95,6 +95,11 @@ def process_one_init(
 
     f_obs = float(obs_exceedance.sum()) / float(land_mask.sum()) if land_mask.sum() > 0 else 0.0
 
+    if prob_np.shape != obs_exceedance.shape:
+        raise ValueError(
+            f"Forecast grid shape {prob_np.shape} != observed grid shape "
+            f"{obs_exceedance.shape}. Grids must be on the same 0.25° IMD grid."
+        )
     fss_vals = compute_fss_table(
         prob_np, obs_exceedance.astype(float),
         cfg.fss.windows_cells, land_mask,
@@ -459,6 +464,9 @@ def run_hero(config_path: str, dry_run: bool = False) -> None:
         cfg.crossrun.lockon_drift_km, cfg.crossrun.lockon_iou,
     )
     if lockon_idx is not None:
+        # drifts[m] = drift arriving at inits_sorted[m+1].
+        # detect_lockon returns k = first index in drifts where all m>=k satisfy the condition.
+        # The run that *arrives* at a stable position is inits_sorted[k+1].
         lockon_init = inits_sorted[lockon_idx + 1] if lockon_idx + 1 < len(inits_sorted) else None
         if lockon_init:
             for s in crossrun_stats:

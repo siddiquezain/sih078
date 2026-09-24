@@ -48,7 +48,11 @@ def accumulate_window(
     for idx in selected_indices:
         t_k = times[idx]
         if idx == 0:
-            continue  # No predecessor; Δt undefined — skip
+            # No predecessor → Δt undefined. This only fires if lead_time[0]
+            # (= init time, a zero-length interval) falls inside the window,
+            # which cannot happen for windows starting at 03 UTC D−1 (all
+            # lead_time[0] = init time = 00 UTC D is excluded by t > t0).
+            continue
         t_prev = times[idx - 1]
         dt_seconds = (t_k - t_prev).total_seconds()
         rate = ds[rate_var].isel(lead_time=idx)  # (member, lat, lon)
