@@ -2,6 +2,7 @@
 # Runs: 00 UTC inits 2025-10-20 to 2025-10-29
 # Region: 8–24 N, 74–90 E
 label: replay
+imd_day_convention: ending  # IMD day D ends at 08:30 IST (03 UTC) on date D
 region:
   lat_min: 8.0
   lat_max: 24.0

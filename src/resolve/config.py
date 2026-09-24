@@ -66,6 +66,7 @@ class ResolveConfig:
     fss: FSSConfig
     cache_dir: str
     output_dir: str
+    imd_day_convention: str = "ending"
 
 
 def load_config(path: str) -> ResolveConfig:
@@ -74,6 +75,9 @@ def load_config(path: str) -> ResolveConfig:
         raise FileNotFoundError(f"Config not found: {path}")
     with p.open() as fh:
         raw = yaml.safe_load(fh)
+    conv = raw.get("imd_day_convention", "ending")
+    if conv not in ("ending", "starting"):
+        raise ValueError(f"imd_day_convention must be 'ending' or 'starting', got {conv!r}")
     return ResolveConfig(
         label=raw["label"],
         region=RegionConfig(**raw["region"]),
@@ -85,4 +89,5 @@ def load_config(path: str) -> ResolveConfig:
         fss=FSSConfig(**raw.get("fss", {})),
         cache_dir=raw.get("cache_dir", "cache"),
         output_dir=raw.get("output_dir", "outputs"),
+        imd_day_convention=conv,
     )

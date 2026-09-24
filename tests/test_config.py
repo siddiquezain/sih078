@@ -1,9 +1,11 @@
 import pytest
+import yaml
 from pathlib import Path
 from resolve.config import load_config, ResolveConfig
 
 CONFIG_YAML = """
 label: replay
+imd_day_convention: ending
 region:
   lat_min: 8.0
   lat_max: 24.0
@@ -34,16 +36,36 @@ cache_dir: "cache/test"
 output_dir: "outputs/test"
 """
 
+
 def test_load_config_roundtrip(tmp_path):
     p = tmp_path / "cfg.yaml"
     p.write_text(CONFIG_YAML)
     cfg = load_config(str(p))
     assert cfg.label == "replay"
+    assert cfg.imd_day_convention == "ending"
     assert cfg.region.lat_min == 8.0
     assert cfg.rain_thresholds.very_heavy == 115.6
     assert cfg.fss.windows_cells == [1, 3, 5, 7, 9, 13]
     assert cfg.crossrun.lockon_iou == 0.5
 
+
 def test_load_config_missing_file():
     with pytest.raises(FileNotFoundError):
         load_config("/nonexistent/path.yaml")
+
+
+def test_load_config_convention_default(tmp_path):
+    """imd_day_convention defaults to 'ending' when absent from YAML."""
+    minimal = {
+        "label": "replay",
+        "region": {"lat_min": 8.0, "lat_max": 24.0, "lon_min": 74.0, "lon_max": 90.0},
+        "init_dates": {"start": "2025-10-20", "end": "2025-10-29"},
+        "target_day_search": {"start": "2025-10-26", "end": "2025-10-31",
+                              "threshold_mm": 115.6},
+        "cache_dir": "cache/test",
+        "output_dir": "outputs/test",
+    }
+    p = tmp_path / "minimal.yaml"
+    p.write_text(yaml.dump(minimal))
+    cfg = load_config(str(p))
+    assert cfg.imd_day_convention == "ending"
