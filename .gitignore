@@ -1,0 +1,38 @@
+# Data and outputs — never commit
+cache/
+outputs/
+*.zarr/
+*.nc
+*.grb
+*.grib2
+*.h5
+*.hdf5
+*.npy
+*.pkl
+*.csv
+
+# Credentials
+.netrc
+*.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
