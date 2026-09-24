@@ -1,8 +1,9 @@
 """Rain accumulation: IFS ENS precipitation_surface rate → mm per window.
 
 IFS precipitation_surface: mean rate since the previous step, kg m⁻² s⁻¹ = mm/s.
+lead_time is timedelta64 in the real dataset; pass init_time to get absolute times.
 Rain for step k = rate_k × (t_k − t_{k−1}) seconds.
-Include step k if t_k is in (t0, t1] (exclusive t0, inclusive t1).
+Include step k if valid_time_k is in (t0, t1] (exclusive t0, inclusive t1).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ def rate_to_mm(rate: float, dt_seconds: float) -> float:
 
 def accumulate_window(
     ds: xr.Dataset,
+    init_time: pd.Timestamp,
     t0: pd.Timestamp,
     t1: pd.Timestamp,
     rate_var: str = "precipitation_surface",
@@ -25,39 +27,50 @@ def accumulate_window(
     """Accumulate member rain (mm) over the half-open window (t0, t1].
 
     Args:
-        ds: Dataset with dims (lead_time, member, latitude, longitude).
-            lead_time values are absolute timestamps.
+        ds: Dataset with lead_time as timedelta64 and dim 'member'.
+        init_time: Forecast initialisation time (00 UTC).
         t0: Window start (exclusive).
         t1: Window end (inclusive).
-        rate_var: Name of the rate variable.
+        rate_var: Variable name for precipitation rate.
 
     Returns:
-        DataArray with dims (member, latitude, longitude), units mm.
-        All-zero if no steps fall inside the window.
+        DataArray (member, latitude, longitude), mm.
+
+    Raises:
+        ValueError: If steps inside the window don't sum to exactly 86 400 s,
+                    or if any cell has negative accumulated rain.
     """
-    times = pd.DatetimeIndex(ds.lead_time.values)
-    in_window = (times > t0) & (times <= t1)
+    lead_td = pd.to_timedelta(ds.lead_time.values)
+    valid_times = pd.DatetimeIndex([init_time + td for td in lead_td])
+    in_window = (valid_times > t0) & (valid_times <= t1)
 
     if not in_window.any():
         da = ds[rate_var].isel(lead_time=0) * 0.0
         return da.drop_vars("lead_time", errors="ignore")
 
-    selected_indices = np.where(in_window)[0]
-    accum = None
-
-    for idx in selected_indices:
-        t_k = times[idx]
+    # Sanity gate: window must be covered by exactly 86 400 s of steps
+    total_seconds = 0.0
+    for idx in np.where(in_window)[0]:
         if idx == 0:
-            # No predecessor → Δt undefined. This only fires if lead_time[0]
-            # (= init time, a zero-length interval) falls inside the window,
-            # which cannot happen for windows starting at 03 UTC D−1 (all
-            # lead_time[0] = init time = 00 UTC D is excluded by t > t0).
+            # lead_time[0] = 0h → zero-length interval; cannot be in window
+            # (window start t0 ≥ init_time, and t > t0 is strict)
             continue
-        t_prev = times[idx - 1]
-        dt_seconds = (t_k - t_prev).total_seconds()
+        dt = (valid_times[idx] - valid_times[idx - 1]).total_seconds()
+        total_seconds += dt
+
+    if abs(total_seconds - 86400.0) > 1.0:
+        raise ValueError(
+            f"Window ({t0}, {t1}] sums to {total_seconds:.0f} s of forecast steps; "
+            f"expected 86400 s. Check lead_time coverage for init {init_time.isoformat()}."
+        )
+
+    accum = None
+    for idx in np.where(in_window)[0]:
+        if idx == 0:
+            continue
+        dt_seconds = (valid_times[idx] - valid_times[idx - 1]).total_seconds()
         rate = ds[rate_var].isel(lead_time=idx)  # (member, lat, lon)
         rain_mm = rate * dt_seconds
-        rain_mm = rain_mm.clip(min=0.0)
         if accum is None:
             accum = rain_mm
         else:
@@ -67,21 +80,49 @@ def accumulate_window(
         da = ds[rate_var].isel(lead_time=0) * 0.0
         return da.drop_vars("lead_time", errors="ignore")
 
+    # Sanity gate: rain must be ≥ 0 everywhere
+    accum_vals = accum.values
+    if np.any(accum_vals < 0):
+        neg_min = float(accum_vals.min())
+        raise ValueError(
+            f"Accumulated rain has negative values (min={neg_min:.4f} mm). "
+            "Check precipitation_surface data."
+        )
+
+    # Sanity gate: rain must be < 1000 mm (physical upper bound for 24 h)
+    if np.any(accum_vals >= 1000.0):
+        pos_max = float(accum_vals.max())
+        raise ValueError(
+            f"Accumulated rain exceeds 1000 mm (max={pos_max:.1f} mm). "
+            "Check units — precipitation_surface must be in kg m⁻² s⁻¹."
+        )
+
     return accum.drop_vars("lead_time", errors="ignore")
 
 
 def window_bounds_utc(
     target_date_str: str,
+    convention: str = "ending",
     offset_hours: int = 0,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Return (t0, t1) for a 24-hour IMD rain day ending 03 UTC.
+    """Return (t0, t1) for a 24-hour IMD rain day.
 
-    IMD rain day D: ends at 03 UTC on date D.
-    Window = (D-1 03 UTC, D 03 UTC].
+    Args:
+        target_date_str: ISO date string (e.g. '2025-10-28').
+        convention: 'ending' — IMD day D ends at 03 UTC on D (default).
+                    'starting' — IMD day D starts at 00 UTC on D (unusual).
+        offset_hours: Applied to t1; use -3 for leads > 144 h where the nearest
+                      6-hourly step ends at 00 UTC instead of 03 UTC.
 
-    For lead > 144 h (6-hourly), use offset_hours = -3 → window ends 00 UTC.
+    Returns:
+        (t0, t1): Window is (t0, t1] (exclusive start, inclusive end).
     """
     d = pd.Timestamp(target_date_str)
-    t1 = d + pd.Timedelta(hours=3 + offset_hours)
+    if convention == "ending":
+        t1 = d + pd.Timedelta(hours=3 + offset_hours)
+    elif convention == "starting":
+        t1 = d + pd.Timedelta(hours=24 + offset_hours)
+    else:
+        raise ValueError(f"convention must be 'ending' or 'starting', got {convention!r}")
     t0 = t1 - pd.Timedelta(hours=24)
     return t0, t1
