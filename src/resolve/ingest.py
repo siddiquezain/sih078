@@ -1,7 +1,10 @@
 """Ingest IFS ENS forecasts to a local Zarr cache.
 
-Uses dynamical_catalog to open ECMWF IFS ENS 0.25° forecasts.
-Subsets to region and variables before writing to Zarr.
+Real schema from the dynamical.org catalog:
+  - lead_time: timedelta64 (0h, 3h, 6h, …, 360h)
+  - ensemble_member: int 0–50  ← renamed to 'member' here
+  - init_time: datetime64 (one value per file, stored as a scalar coord)
+  - latitude, longitude: float64, ascending order after normalisation
 
 IMPORTANT: Never use data.dynamical.org URLs directly.
 Always go through the catalog API.
@@ -12,7 +15,6 @@ import logging
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -41,12 +43,9 @@ def _catalog():
 
 
 def subset_lat_lon(ds: xr.Dataset, lat_min, lat_max, lon_min, lon_max) -> xr.Dataset:
-    """Subset dataset to a lat/lon bounding box.
-
-    Handles both ascending and descending latitude orders.
-    """
+    """Subset to a lat/lon bounding box, handling ascending or descending latitude."""
     lat = ds.latitude.values
-    if lat[0] > lat[-1]:  # descending
+    if lat[0] > lat[-1]:  # descending → reverse slice args
         ds = ds.sel(
             latitude=slice(lat_max, lat_min),
             longitude=slice(lon_min, lon_max),
@@ -59,6 +58,29 @@ def subset_lat_lon(ds: xr.Dataset, lat_min, lat_max, lon_min, lon_max) -> xr.Dat
     return ds
 
 
+def _normalise(ds: xr.Dataset, init_time: pd.Timestamp) -> xr.Dataset:
+    """Apply real-schema normalisations before caching.
+
+    1. Rename ensemble_member → member (if present).
+    2. Sort latitude and longitude ascending.
+    3. Store init_time as a scalar coordinate.
+    4. Clear all encodings so to_zarr starts clean.
+    """
+    if "ensemble_member" in ds.dims:
+        ds = ds.rename({"ensemble_member": "member"})
+
+    # Sort spatial coords ascending
+    ds = ds.sortby(["latitude", "longitude"])
+
+    # Store init_time for use by open_cached callers
+    ds = ds.assign_coords(init_time=init_time.to_datetime64())
+
+    # Clear encodings — xarray ≥ 2024.1
+    ds = ds.drop_encoding()
+
+    return ds
+
+
 def ingest_one_init(
     init_time: pd.Timestamp,
     lat_min: float, lat_max: float,
@@ -68,6 +90,7 @@ def ingest_one_init(
 ) -> Path:
     """Download and cache one init time to Zarr.
 
+    Normalises schema (member rename, sort, encoding clear) before writing.
     Returns path to the Zarr store. Cache hit returns immediately.
     """
     cache_dir = Path(cache_dir)
@@ -91,16 +114,28 @@ def ingest_one_init(
 
     elapsed = time.perf_counter() - t0
     size_mb = sum(ds[v].nbytes for v in ds.data_vars) / 1e6
-    logger.info("Downloaded %.1f MB in %.1f s for %s", size_mb, elapsed, init_time.isoformat())
+    logger.info(
+        "Downloaded %.1f MB in %.1f s for %s",
+        size_mb, elapsed, init_time.isoformat(),
+    )
 
-    ds.to_zarr(str(zarr_path), mode="w")
+    ds = _normalise(ds, init_time)
+    ds.to_zarr(str(zarr_path), mode="w", consolidated=True)
     logger.info("Cached to %s", zarr_path)
     return zarr_path
 
 
 def open_cached(zarr_path: str | Path) -> xr.Dataset:
-    """Open a cached Zarr store."""
-    return xr.open_zarr(str(zarr_path), chunks=None)
+    """Open a cached Zarr store and return the dataset.
+
+    The returned dataset has:
+      lead_time: timedelta64
+      member: int
+      latitude, longitude: float64 (ascending)
+      init_time: scalar datetime64 coordinate
+    """
+    ds = xr.open_zarr(str(zarr_path), chunks=None, consolidated=True)
+    return ds
 
 
 def ingest_all(
