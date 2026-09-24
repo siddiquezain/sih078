@@ -81,13 +81,32 @@ def process_one_init(
 
     lead_hours = (pd.Timestamp(target_date + "T03:00:00") - init_time).total_seconds() / 3600
     if lead_hours > 144:
-        t0, t1 = window_bounds_utc(target_date, offset_hours=-3)
+        t0, t1 = window_bounds_utc(
+            target_date, convention=cfg.imd_day_convention, offset_hours=-3
+        )
         window_offset = -3
     else:
-        t0, t1 = window_bounds_utc(target_date, offset_hours=0)
+        t0, t1 = window_bounds_utc(
+            target_date, convention=cfg.imd_day_convention, offset_hours=0
+        )
         window_offset = 0
 
-    accum = accumulate_window(ds, t0, t1)
+    accum = accumulate_window(ds, init_time, t0, t1)
+
+    # Align forecast grid onto IMD 0.25° grid by coordinates
+    accum = accum.sortby(["latitude", "longitude"])
+    accum = accum.reindex(
+        latitude=lat,
+        longitude=lon,
+        method="nearest",
+        tolerance=0.01,
+    )
+    if not np.allclose(accum.latitude.values, lat, atol=0.01):
+        raise ValueError(
+            "Forecast latitude coordinates don't match IMD grid after reindex. "
+            "Check that both grids are on 0.25° spacing."
+        )
+
     threshold = cfg.rain_thresholds.very_heavy
     mbr_mask = member_exceedance_mask(accum, threshold)
     prob = ensemble_probability(mbr_mask)
@@ -97,8 +116,8 @@ def process_one_init(
 
     if prob_np.shape != obs_exceedance.shape:
         raise ValueError(
-            f"Forecast grid shape {prob_np.shape} != observed grid shape "
-            f"{obs_exceedance.shape}. Grids must be on the same 0.25° IMD grid."
+            f"Forecast grid {prob_np.shape} != observed grid {obs_exceedance.shape} "
+            "after reindex. Grids must be on the same 0.25° IMD grid."
         )
     fss_vals = compute_fss_table(
         prob_np, obs_exceedance.astype(float),
@@ -388,7 +407,10 @@ def run_hero(config_path: str, dry_run: bool = False) -> None:
             cfg.region.lat_min, cfg.region.lat_max,
             cfg.region.lon_min, cfg.region.lon_max,
         )
-        alignment = check_alignment(imd_da, imerg_da)
+        alignment = check_alignment(
+            imd_da, imerg_da,
+            expected_convention=cfg.imd_day_convention,
+        )
     except Exception as e:
         logger.warning("IMERG unavailable: %s — proceeding with IMD only (no 10 km rung)", e)
         alignment["note"] = f"IMERG unavailable: {e}. 10 km rung omitted."
