@@ -70,7 +70,12 @@ def fetch_imd(
                 f"Both IMD archive ({archive_err}) and real-time ({rt_err}) failed."
             ) from rt_err
 
-    da = data.get_xarray()
+    result = data.get_xarray()
+    # imdlib >= 0.1.22 returns a Dataset; extract the 'rain' DataArray.
+    if hasattr(result, "data_vars"):
+        da = result["rain"]
+    else:
+        da = result
     logger.info(
         "IMD shape: %s, %s to %s",
         da.shape, str(da.time.values[0])[:10], str(da.time.values[-1])[:10],
