@@ -432,11 +432,22 @@ def run_hero(config_path: str, dry_run: bool = False) -> None:
     run_results = {}
     for init_time, zarr_path in sorted(zarr_paths.items()):
         logger.info("Processing init: %s", init_time.isoformat())
-        res = process_one_init(
-            init_time, zarr_path, target_date, cfg,
-            land_mask, lat, lon, obs_exc,
-        )
-        run_results[init_time] = res
+        try:
+            res = process_one_init(
+                init_time, zarr_path, target_date, cfg,
+                land_mask, lat, lon, obs_exc,
+            )
+            run_results[init_time] = res
+        except ValueError as e:
+            if "86400 s" in str(e):
+                # Init overlaps with the target window; forecast doesn't cover
+                # the full 24 h. Skip gracefully (expected for D-0 same-day inits).
+                logger.warning(
+                    "Init %s: window not fully covered by forecast steps — skipping. (%s)",
+                    init_time.isoformat(), e,
+                )
+            else:
+                raise
 
     # Step 6: Crossrun matching
     from resolve.crossrun import match_objects, haversine_km, detect_lockon, _bbox_iou
