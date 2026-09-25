@@ -89,11 +89,15 @@ def accumulate_window(
             "Check precipitation_surface data."
         )
 
-    # Sanity gate: rain must be < 1000 mm (physical upper bound for 24 h)
-    if np.any(accum_vals >= 1000.0):
+    # Sanity gate: rain must be < 2000 mm (above world 24 h record of 1825 mm).
+    # IFS ENS extreme members for landfalling cyclones can exceed 1000 mm, so
+    # the threshold is set above the physical maximum to catch unit errors only
+    # (e.g. mm/hr rates not converted to mm, which would give >86 000 mm).
+    # ponytail: 2000 mm threshold; tighten if non-cyclone events are ever mislabelled
+    if np.any(accum_vals >= 2000.0):
         pos_max = float(accum_vals.max())
         raise ValueError(
-            f"Accumulated rain exceeds 1000 mm (max={pos_max:.1f} mm). "
+            f"Accumulated rain exceeds 2000 mm (max={pos_max:.1f} mm). "
             "Check units — precipitation_surface must be in kg m⁻² s⁻¹."
         )
 
