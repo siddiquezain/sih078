@@ -76,6 +76,14 @@ def fetch_imd(
         da = result["rain"]
     else:
         da = result
+    # imdlib uses 'lat'/'lon'; rename to 'latitude'/'longitude' for consistency.
+    rename_map = {}
+    if "lat" in da.dims and "latitude" not in da.dims:
+        rename_map["lat"] = "latitude"
+    if "lon" in da.dims and "longitude" not in da.dims:
+        rename_map["lon"] = "longitude"
+    if rename_map:
+        da = da.rename(rename_map)
     logger.info(
         "IMD shape: %s, %s to %s",
         da.shape, str(da.time.values[0])[:10], str(da.time.values[-1])[:10],
