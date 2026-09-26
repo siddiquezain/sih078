@@ -126,21 +126,49 @@ def process_one_init(
 
     ew = earned_width(fss_vals, cfg.fss.windows_cells, f_obs)
 
+    # Member masks (boolean, n_members × nlat × nlon) — stored for NMEP and IoU
+    mbr_mask_np = mbr_mask.values  # (n_members, nlat, nlon)
+
     prob_binary = (prob_np >= cfg.objects.p_min)
     objs = find_objects(
         prob_binary, prob_np, lat, lon,
         min_area_cells=cfg.objects.min_area_cells,
     )
 
+    # Tracked object footprint mask (for run-to-run IoU)
+    nlat_g, nlon_g = len(lat), len(lon)
+    tracked_mask = None
+    if objs and objs[0].cells:
+        flat = np.zeros(nlat_g * nlon_g, dtype=bool)
+        flat[objs[0].cells] = True
+        tracked_mask = flat.reshape(nlat_g, nlon_g)
+
     return {
         "fss_table": fss_vals,
         "earned_width_cells": ew,
         "prob_field": prob_np,
+        "member_masks": mbr_mask_np,
         "objects": objs,
+        "tracked_mask": tracked_mask,
         "f_obs": f_obs,
         "window_offset": window_offset,
         "lead_hours": lead_hours,
     }
+
+
+def _nmep_tiles(member_masks: np.ndarray, nlat: int, nlon: int, n: int) -> np.ndarray:
+    """NMEP at tile size n. Returns 2D int array (ceil(nlat/n), ceil(nlon/n))."""
+    import math
+    n_members = member_masks.shape[0]
+    nr = math.ceil(nlat / n)
+    nc = math.ceil(nlon / n)
+    result = np.zeros((nr, nc), dtype=int)
+    for r in range(nr):
+        for c in range(nc):
+            tile = member_masks[:, r * n: min((r + 1) * n, nlat),
+                                   c * n: min((c + 1) * n, nlon)]
+            result[r, c] = int(tile.reshape(n_members, -1).any(axis=1).sum())
+    return result
 
 
 def make_hero_figure(
@@ -156,11 +184,12 @@ def make_hero_figure(
     track_lons: list[float] | None,
 ) -> tuple[Path, Path]:
     """Produce the 3-panel hero figure (PNG 300 dpi + SVG)."""
+    import math
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
     from matplotlib.patches import Patch
-    from scipy.ndimage import uniform_filter
     from resolve.fss import useful_skill_line
     from resolve.earned import cells_to_km
 
@@ -174,42 +203,59 @@ def make_hero_figure(
     inits = sorted(run_results.keys())
     target_dt = pd.Timestamp(target_date)
     lead_colors = {7: "#4e9af1", 4: "#f1a34e", 2: "#e05c5c", 1: "#5ce05c"}
+    nlat, nlon = len(lat), len(lon)
 
-    fig = plt.figure(figsize=(18, 6))
+    fig = plt.figure(figsize=(18, 8))
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.5, wspace=0.35)
 
-    # Panel A: footprints at earned width for D-7, D-4, D-2, D-1
+    # Panel A: NMEP tiles at earned width for D-7, D-4, D-2, D-1
     if HAS_CARTOPY:
         import cartopy.feature as cfeature
-        ax_a = fig.add_subplot(1, 3, 1, projection=ccrs.PlateCarree())
+        ax_a = fig.add_subplot(gs[:, 0], projection=ccrs.PlateCarree())
         ax_a.set_extent([lon.min(), lon.max(), lat.min(), lat.max()], ccrs.PlateCarree())
         ax_a.add_feature(cfeature.COASTLINE, linewidth=0.5)
         ax_a.add_feature(cfeature.BORDERS, linewidth=0.3)
         transform = ccrs.PlateCarree()
     else:
-        ax_a = fig.add_subplot(1, 3, 1)
+        ax_a = fig.add_subplot(gs[:, 0])
         transform = None
 
-    lon2d, lat2d = np.meshgrid(lon, lat)
     panel_a_inits = {}
     for lead in [7, 4, 2, 1]:
         t = (target_dt - pd.Timedelta(days=lead)).replace(hour=0)
         if t in run_results:
             panel_a_inits[lead] = t
 
+    cmap_list = {7: "Blues", 4: "Oranges", 2: "Reds", 1: "Greens"}
     for lead, init in sorted(panel_a_inits.items()):
         res = run_results[init]
-        prob = res["prob_field"]
-        ew_cells = res["earned_width_cells"]
-        smooth_prob = uniform_filter(prob, size=ew_cells, mode="constant", cval=0.0) if ew_cells else prob
-        color = lead_colors.get(lead, "gray")
-        kwargs = dict(levels=[0.5, 1.01], colors=[color], alpha=0.4)
+        ew_cells = res["earned_width_cells"] or 1
+        mbr_masks = res.get("member_masks")
+        if mbr_masks is None:
+            continue
+        nmep = _nmep_tiles(mbr_masks, nlat, nlon, ew_cells)  # (nr, nc) int array
+        n_members = mbr_masks.shape[0]
+        nr = math.ceil(nlat / ew_cells)
+        nc = math.ceil(nlon / ew_cells)
+        # Build tile edge arrays for pcolormesh
+        tile_lat_edges = np.array([lat[min(r * ew_cells, nlat - 1)] for r in range(nr + 1)]
+                                   if nr < nlat else
+                                   list(lat) + [lat[-1] + (lat[-1] - lat[-2])])
+        tile_lon_edges = np.array([lon[min(c * ew_cells, nlon - 1)] for c in range(nc + 1)]
+                                   if nc < nlon else
+                                   list(lon) + [lon[-1] + (lon[-1] - lon[-2])])
+        tile_lon_edges = np.linspace(lon[0], lon[-1] + 0.25 * ew_cells, nc + 1)
+        tile_lat_edges = np.linspace(lat[0], lat[-1] + 0.25 * ew_cells, nr + 1)
+        lons_m, lats_m = np.meshgrid(tile_lon_edges, tile_lat_edges)
+        cmap = cmap_list.get(lead, "Greys")
+        kwargs = dict(cmap=cmap, vmin=0, vmax=n_members, alpha=0.45, shading="flat")
         if transform:
-            ax_a.contourf(lon2d, lat2d, smooth_prob, transform=transform, **kwargs)
-            ax_a.contour(lon2d, lat2d, smooth_prob, levels=[0.5], colors=[color], linewidths=1.0, transform=transform)
+            ax_a.pcolormesh(lons_m, lats_m, nmep, transform=transform, **kwargs)
         else:
-            ax_a.contourf(lon2d, lat2d, smooth_prob, **kwargs)
-            ax_a.contour(lon2d, lat2d, smooth_prob, levels=[0.5], colors=[color], linewidths=1.0)
+            ax_a.pcolormesh(lons_m, lats_m, nmep, **kwargs)
 
+    # Observed exceedance contour
+    lon2d, lat2d = np.meshgrid(lon, lat)
     obs_kw = dict(levels=[0.5], colors=["black"], linewidths=1.5)
     if transform:
         ax_a.contour(lon2d, lat2d, obs_exceedance.astype(float), transform=transform, **obs_kw)
@@ -224,15 +270,16 @@ def make_hero_figure(
             ax_a.plot(track_lons, track_lats, **track_kw)
 
     legend_handles = [
-        Patch(facecolor=lead_colors.get(l, "gray"), alpha=0.5, label=f"D−{l}")
+        Patch(facecolor=plt.get_cmap(cmap_list.get(l, "Greys"))(0.6), alpha=0.6,
+              label=f"D−{l} NMEP")
         for l in sorted(panel_a_inits.keys())
     ]
     legend_handles.append(Patch(facecolor="none", edgecolor="black", label="Obs ≥ 115.6 mm"))
     ax_a.legend(handles=legend_handles, loc="lower left", fontsize=7)
-    ax_a.set_title(f"Panel A — Footprints at earned width\nTarget: {target_date}", fontsize=9)
+    ax_a.set_title(f"Panel A — NMEP tiles at earned width\nTarget: {target_date}", fontsize=9)
 
-    # Panel B: FSS vs width curves
-    ax_b = fig.add_subplot(1, 3, 2)
+    # Panel B: FSS vs width curves (full left column of right half)
+    ax_b = fig.add_subplot(gs[:, 1])
     windows_km = [cells_to_km(n) for n in cfg.fss.windows_cells]
     for init in inits:
         res = run_results[init]
@@ -249,27 +296,30 @@ def make_hero_figure(
     ax_b.set_title("Panel B — FSS vs neighbourhood width", fontsize=9)
     ax_b.legend(fontsize=6, ncol=2)
 
-    # Panel C: drift and probability by run
-    ax_c1 = fig.add_subplot(1, 3, 3)
-    ax_c2 = ax_c1.twinx()
+    # Panel C: two stacked subplots — drift (top) and max probability (bottom)
+    ax_c1 = fig.add_subplot(gs[0, 2])
+    ax_c2 = fig.add_subplot(gs[1, 2], sharex=ax_c1)
     init_dates = [s["init"] for s in crossrun_stats]
-    drifts = [s.get("drift_km", np.nan) for s in crossrun_stats]
-    probs = [s.get("max_prob", np.nan) for s in crossrun_stats]
+    drifts_c = [s.get("drift_km", np.nan) for s in crossrun_stats]
+    probs_c = [s.get("max_prob", np.nan) for s in crossrun_stats]
     lockon_init = next((s["init"] for s in crossrun_stats if s.get("lockon")), None)
 
-    ax_c1.plot(init_dates, drifts, "b-o", markersize=4, label="Drift (km)")
-    ax_c2.plot(init_dates, probs, "r-s", markersize=4, label="Max prob")
+    ax_c1.plot(init_dates, drifts_c, "b-o", markersize=4, label="Drift (km)")
+    ax_c2.plot(init_dates, probs_c, "r-s", markersize=4, label="Max prob")
     if lockon_init is not None:
-        ax_c1.axvline(lockon_init, color="green", linestyle=":", linewidth=1.5,
-                      label=f"Lock-on: {str(lockon_init)[:10]}")
-    ax_c1.set_ylabel("Run-to-run drift (km)", color="blue")
-    ax_c2.set_ylabel("Max probability", color="red")
-    ax_c1.set_xlabel("Init date")
-    ax_c1.set_title("Panel C — Drift and probability by run", fontsize=9)
-    ax_c1.tick_params(axis="x", rotation=45, labelsize=7)
-    lines1, labels1 = ax_c1.get_legend_handles_labels()
-    lines2, labels2 = ax_c2.get_legend_handles_labels()
-    ax_c1.legend(lines1 + lines2, labels1 + labels2, fontsize=7)
+        for ax in (ax_c1, ax_c2):
+            ax.axvline(lockon_init, color="green", linestyle=":", linewidth=1.5)
+        ax_c1.annotate(f"Lock-on\n{str(lockon_init)[:10]}", xy=(lockon_init, 0),
+                       xycoords=("data", "axes fraction"), fontsize=6, color="green",
+                       va="bottom")
+    ax_c1.set_ylabel("Drift (km)", fontsize=8)
+    ax_c1.set_title("Panel C — Run-to-run drift and max prob", fontsize=9)
+    ax_c1.tick_params(axis="x", labelbottom=False)
+    ax_c1.legend(fontsize=7)
+    ax_c2.set_ylabel("Max prob", fontsize=8)
+    ax_c2.set_xlabel("Init date")
+    ax_c2.tick_params(axis="x", rotation=45, labelsize=7)
+    ax_c2.legend(fontsize=7)
 
     caption = (
         "Single event (Montha, Oct 2025); full event library before the finale.\n"
@@ -450,7 +500,9 @@ def run_hero(config_path: str, dry_run: bool = False) -> None:
                 raise
 
     # Step 6: Crossrun matching
-    from resolve.crossrun import match_objects, haversine_km, detect_lockon, _bbox_iou
+    # Tracked object = objects[0] (sorted by sum_prob descending).
+    # Drift/IoU = mask IoU on footprints; null if distance > max_centroid_km.
+    from resolve.crossrun import haversine_km, iou_masks, detect_lockon
     logger.info("=== Step 6: Crossrun ===")
     crossrun_stats = []
     inits_sorted = sorted(run_results.keys())
@@ -469,22 +521,26 @@ def run_hero(config_path: str, dry_run: bool = False) -> None:
             prev = inits_sorted[k - 1]
             objs_prev = run_results[prev]["objects"]
             objs_curr = run_results[init]["objects"]
-            matches = match_objects(
-                objs_prev, objs_curr,
-                masks_a=None, masks_b=None,
-                max_centroid_km=cfg.crossrun.max_centroid_km,
-            )
-            if matches:
-                i0, j0 = matches[0]
+            mask_p = run_results[prev]["tracked_mask"]
+            mask_c = run_results[init]["tracked_mask"]
+
+            if objs_prev and objs_curr:
+                obj_p = objs_prev[0]
+                obj_c = objs_curr[0]
                 drift = haversine_km(
-                    (objs_prev[i0].centroid_lat, objs_prev[i0].centroid_lon),
-                    (objs_curr[j0].centroid_lat, objs_curr[j0].centroid_lon),
+                    (obj_p.centroid_lat, obj_p.centroid_lon),
+                    (obj_c.centroid_lat, obj_c.centroid_lon),
                 )
-                stat["drift_km"] = drift
-                drifts.append(drift)
-                iou = _bbox_iou(objs_prev[i0].bbox, objs_curr[j0].bbox)
-                stat["iou"] = iou
-                ious_list.append(iou)
+                if drift <= cfg.crossrun.max_centroid_km:
+                    stat["drift_km"] = drift
+                    if mask_p is not None and mask_c is not None:
+                        stat["iou"] = iou_masks(mask_p, mask_c)
+                    drifts.append(stat["drift_km"])
+                    ious_list.append(stat["iou"])
+                else:
+                    # Too far — null entry, does not count toward lock-on
+                    drifts.append(np.nan)
+                    ious_list.append(np.nan)
             else:
                 drifts.append(np.nan)
                 ious_list.append(np.nan)

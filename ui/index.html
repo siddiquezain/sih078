@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Resolve Montha Replay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@1,400&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="bar">
+    <div class="brand" aria-label="Resolve">
+      <svg width="30" height="14" viewBox="0 0 30 14" aria-hidden="true">
+        <rect x="0" y="0" width="14" height="14" rx="1.5"/>
+        <rect x="16.5" y="6" width="8" height="8" rx="1.2"/>
+        <rect x="26.5" y="10.5" width="3.5" height="3.5" rx="0.7"/>
+      </svg>
+      <span>Resolve</span>
+    </div>
+    <dl class="context" id="context"></dl>
+    <div class="bar-end">
+      <span class="mode-pill" id="mode-pill" title="">Replay</span>
+      <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+        <span id="theme-label">Dark</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="notice" id="preview-notice" hidden>
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6v3.6M8 11.4v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <div id="preview-text"></div>
+  </div>
+
+  <main class="stage">
+    <section class="map-col" aria-label="Forecast map and runs">
+      <div class="map" id="map">
+        <svg class="canvas" id="map-svg" role="img" aria-labelledby="map-desc"><desc id="map-desc">Map of the analysis domain showing the forecast footprint for the selected run.</desc></svg>
+
+        <div class="overlay map-controls">
+          <div class="seg" role="group" aria-label="Map layer">
+            <button type="button" id="mode-earned" aria-pressed="true">Earned scale</button>
+            <button type="button" id="mode-raw" aria-pressed="false">Raw ensemble</button>
+          </div>
+          <button type="button" class="switch" id="obs-btn" aria-pressed="true"><span class="knob" aria-hidden="true"></span>Observed rain</button>
+          <div class="seg" role="group" aria-label="Map extent">
+            <button type="button" id="zoom-event" aria-pressed="true">Event</button>
+            <button type="button" id="zoom-domain" aria-pressed="false">Domain</button>
+          </div>
+        </div>
+
+        <div class="overlay legend" id="legend"></div>
+
+        <div class="overlay map-foot">
+          <svg class="scalebar" id="scalebar" width="190" height="26" aria-hidden="true"></svg>
+          <div class="credit" id="credit"></div>
+        </div>
+
+        <div class="overlay map-empty" id="map-empty" hidden>
+          <h3 id="empty-title">No scale earned yet</h3>
+          <p id="empty-body"></p>
+          <button type="button" class="link-btn" id="empty-raw">Show the raw ensemble</button>
+        </div>
+
+        <div class="tip" id="tip" hidden></div>
+      </div>
+
+      <nav class="timeline" aria-label="Forecast runs">
+        <div class="tl-head">
+          <div>
+            <div class="tl-title">Forecast runs</div>
+            <div class="tl-sub" id="tl-sub">Issued daily at 00 UTC</div>
+          </div>
+          <button type="button" class="play" id="play-btn" aria-pressed="false">
+            <svg viewBox="0 0 12 12" aria-hidden="true" id="play-icon"><path d="M2.5 1.2v9.6L10.5 6z"/></svg>
+            <span id="play-label">Play runs</span>
+          </button>
+        </div>
+        <div class="runs" id="runs"></div>
+      </nav>
+    </section>
+
+    <aside class="rail" id="rail" aria-live="polite">
+      <section class="sec">
+        <div>
+          <h2 class="run-title" id="run-title"></h2>
+          <p class="run-sub" id="run-sub"></p>
+        </div>
+        <div class="hero">
+          <div class="hero-label">Earned scale</div>
+          <div class="hero-value" id="hero-value"></div>
+          <p class="hero-note" id="hero-note"></p>
+        </div>
+        <div class="ladder" id="ladder" aria-label="Tile sizes tested"></div>
+      </section>
+
+      <section class="sec">
+        <div class="stats" id="stats"></div>
+        <span class="lock" id="lock"></span>
+      </section>
+
+      <section class="sec">
+        <div class="sec-title">
+          <span>Skill by tile size</span>
+          <div class="seg small" role="group" aria-label="Skill view">
+            <button type="button" id="view-chart" aria-pressed="true">Chart</button>
+            <button type="button" id="view-table" aria-pressed="false">Table</button>
+          </div>
+        </div>
+        <div class="chart" id="chart"></div>
+        <div class="skill-table-wrap" id="table" hidden></div>
+        <p class="chart-cap" id="chart-cap"></p>
+      </section>
+
+      <section class="sec">
+        <div class="sec-title"><span id="obs-title">Observed</span></div>
+        <p class="obs-line" id="obs-line"></p>
+        <p class="fine" id="obs-note"></p>
+      </section>
+
+      <section class="sec">
+        <p class="fine" id="provenance"></p>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script src="geo/region.js"></script>
+<script src="data/montha.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

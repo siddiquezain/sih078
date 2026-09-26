@@ -1,7 +1,7 @@
 """8-connected component labelling and object feature extraction."""
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
@@ -21,6 +21,8 @@ class RainObject:
     n_cells: int
     bbox: tuple[int, int, int, int]  # row_min, row_max, col_min, col_max
     member: Optional[int] = None
+    cells: Optional[list] = None   # flat indices into the (nlat, nlon) grid
+    sum_prob: float = 0.0           # sum of rain/prob values over the object cells
 
 
 def rain_weighted_centroid(
@@ -72,6 +74,7 @@ def find_objects(
     if n_features == 0:
         return []
 
+    nlon_grid = binary_mask.shape[1]
     objects = []
     for lbl in range(1, n_features + 1):
         obj_mask = labeled == lbl
@@ -84,6 +87,8 @@ def find_objects(
         lat_c, lon_c = rain_weighted_centroid(rain, obj_mask, lat, lon)
         akm2 = area_km2(obj_mask, lat, cell_deg=cell_deg)
         max_rain = float(rain[obj_mask].max()) if n_cells > 0 else 0.0
+        cells = [int(r * nlon_grid + c) for r, c in zip(rows.tolist(), cols.tolist())]
+        sum_prob = float(rain[obj_mask].sum())
 
         objects.append(RainObject(
             label_id=lbl,
@@ -94,7 +99,9 @@ def find_objects(
             n_cells=n_cells,
             bbox=bbox,
             member=member,
+            cells=cells,
+            sum_prob=sum_prob,
         ))
 
-    objects.sort(key=lambda o: o.area_km2, reverse=True)
+    objects.sort(key=lambda o: o.sum_prob, reverse=True)
     return objects

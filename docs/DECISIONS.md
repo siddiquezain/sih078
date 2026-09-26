@@ -43,3 +43,14 @@ the Andhra coast (D-5 run, 2025-10-24 init). World record 24 h rainfall is 1825 
 the 86400 s coverage gate.
 **Reason:** A D-0 init at 00 UTC on the target date covers only the last 3 h of the
 (D-1 03 UTC, D 03 UTC] window. The forecast adds no skill for the preceding 21 h.
+
+## D-008 — imd_day_convention confirmed as 'ending' for Montha 2025
+**Date:** 2026-09-25
+**Decision:** `imd_day_convention: ending` — IMD day D covers 24 h ending at 03 UTC on D.
+**Reason:** Empirical station check on 5 coastal AP/Odisha stations (Anandapuram, Visakhapatnam,
+Mandasa, Kalingapatnam, Ichchapuram). The IMD 0.25° grid for 2025-10-28 shows
+extreme values (>100 mm) at all 5 stations; the 2025-10-27 field shows near-zero values.
+This is consistent with the `ending` convention (Cyclone Montha landfall on the night of
+28 Oct, with heavy rain accumulating in the 24 h to 03 UTC on 28 Oct).
+Correlation check vs. IMERG skipped (earthaccess credentials not present on this machine);
+station evidence is unambiguous.
