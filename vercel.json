@@ -1,0 +1,4 @@
+{
+  "outputDirectory": "ui",
+  "rewrites": [{ "source": "/(.*)", "destination": "/$1" }]
+}
