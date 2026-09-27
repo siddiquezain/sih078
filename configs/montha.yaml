@@ -1,13 +1,13 @@
 # Montha 2025 cyclone + extreme-rain event
 # Runs: 00 UTC inits 2025-10-20 to 2025-10-29
-# Region: 8–24 N, 74–90 E
+# Region: all India
 label: replay
 imd_day_convention: ending  # IMD day D ends at 08:30 IST (03 UTC) on date D
 region:
-  lat_min: 8.0
-  lat_max: 24.0
-  lon_min: 74.0
-  lon_max: 90.0
+  lat_min: 6.0
+  lat_max: 38.0
+  lon_min: 66.0
+  lon_max: 98.0
 init_dates:
   start: "2025-10-20"
   end: "2025-10-29"

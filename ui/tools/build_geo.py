@@ -7,7 +7,7 @@ from pathlib import Path
 from shapely.geometry import shape, box, mapping, MultiLineString, LineString, Polygon, MultiPolygon
 from shapely.ops import unary_union, linemerge
 
-BBOX = box(60.0, 3.0, 104.0, 28.5)
+BBOX = box(60.0, 3.0, 104.0, 40.0)
 TOL_LAND = 0.012
 TOL_LINE = 0.012
 
@@ -95,7 +95,7 @@ india = countries['IND']
 
 out = {
     "source": "Natural Earth 1:10m (public domain), admin-0 and admin-1 v5; simplified to ~1.3 km",
-    "bbox": [60.0, 3.0, 104.0, 28.5],
+    "bbox": [60.0, 3.0, 104.0, 40.0],
     "land": rings_of(land),
     "borders": intl,
     "states": state_lines,
