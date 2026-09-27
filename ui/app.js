@@ -109,7 +109,7 @@
     runs.forEach((r, i) => { if (r.earned_cells != null && (best == null || r.earned_cells <= runs[best].earned_cells)) best = i; });
     if (best != null) defaultRun = best;
   })();
-  const state = { run: defaultRun, mode: 'earned', observed: true, playing: false, timer: null, view: 'chart', zoom: 'event' };
+  const state = { run: defaultRun, mode: 'earned', observed: true, playing: false, timer: null, view: 'chart', zoom: 'event', panZoom: null };
 
   // ---------------------------------------------------------------- header
   function renderHeader() {
@@ -146,7 +146,7 @@
   let P = null;
 
   function projection(W, H) {
-    const V = VIEWS[state.zoom] || VIEWS.domain;
+    const V = state.panZoom || VIEWS[state.zoom] || VIEWS.domain;
     const latSpan = V.latN - V.latS;
     const lonSpan = V.lonE - V.lonW;
     const s = Math.min(H / latSpan, W / (lonSpan * COS0));
@@ -378,8 +378,57 @@
   }
   function hideTip() { tip.hidden = true; }
 
+  let drag = null;
+  svg.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const V = state.panZoom || { ...(VIEWS[state.zoom] || VIEWS.domain) };
+    drag = { sx: e.clientX, sy: e.clientY, V, moved: false };
+    svg.setPointerCapture(e.pointerId);
+  });
+  const endDrag = () => { drag = null; svg.classList.remove('dragging'); };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (!P) return;
+    const rect = svg.getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const curLon = P.lon(px), curLat = P.lat(py);
+    const factor = e.deltaY > 0 ? 1.18 : 1 / 1.18;
+    const V = state.panZoom || { ...(VIEWS[state.zoom] || VIEWS.domain) };
+    state.panZoom = {
+      latS: curLat + (V.latS - curLat) * factor,
+      latN: curLat + (V.latN - curLat) * factor,
+      lonW: curLon + (V.lonW - curLon) * factor,
+      lonE: curLon + (V.lonE - curLon) * factor,
+    };
+    state.zoom = 'custom';
+    ['event', 'domain', 'india'].forEach(n => $('#zoom-' + n).setAttribute('aria-pressed', 'false'));
+    layout();
+  }, { passive: false });
+
   svg.addEventListener('pointermove', e => {
     if (!P) return;
+    if (drag) {
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        if (!drag.moved) {
+          drag.moved = true;
+          svg.classList.add('dragging');
+          ['event', 'domain', 'india'].forEach(n => $('#zoom-' + n).setAttribute('aria-pressed', 'false'));
+        }
+        state.zoom = 'custom';
+        state.panZoom = {
+          latS: drag.V.latS + dy / P.s,
+          latN: drag.V.latN + dy / P.s,
+          lonW: drag.V.lonW - dx / P.s / COS0,
+          lonE: drag.V.lonE - dx / P.s / COS0,
+        };
+        hideTip();
+        layout();
+        return;
+      }
+    }
     const rect = svg.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
     const lo = P.lon(px), la = P.lat(py);
@@ -620,8 +669,9 @@
   $('#empty-raw').addEventListener('click', () => setMode('raw'));
   $('#obs-btn').addEventListener('click', toggleObs);
   function setZoom(z) {
-    if (state.zoom === z) return;
+    if (state.zoom === z && !state.panZoom) return;
     state.zoom = z;
+    state.panZoom = null;
     $('#zoom-event').setAttribute('aria-pressed', String(z === 'event'));
     $('#zoom-domain').setAttribute('aria-pressed', String(z === 'domain'));
     $('#zoom-india').setAttribute('aria-pressed', String(z === 'india'));
