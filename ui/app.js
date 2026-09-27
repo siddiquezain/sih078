@@ -38,6 +38,7 @@
   const PHI0 = (DOMAIN.latS + DOMAIN.latN) / 2;
   const COS0 = Math.cos(PHI0 * Math.PI / 180);
   const VIEWS = {
+    india:  { latS: 5.5, latN: 38.5, lonW: 66.0, lonE: 100.0 },
     domain: { latS: DOMAIN.latS - 1.3, latN: DOMAIN.latN + 1.3, lonW: DOMAIN.lonW - 1.5, lonE: DOMAIN.lonE + 1.5 },
     event: null,
   };
@@ -623,11 +624,13 @@
     state.zoom = z;
     $('#zoom-event').setAttribute('aria-pressed', String(z === 'event'));
     $('#zoom-domain').setAttribute('aria-pressed', String(z === 'domain'));
+    $('#zoom-india').setAttribute('aria-pressed', String(z === 'india'));
     hideTip();
     layout();
   }
   $('#zoom-event').addEventListener('click', () => setZoom('event'));
   $('#zoom-domain').addEventListener('click', () => setZoom('domain'));
+  $('#zoom-india').addEventListener('click', () => setZoom('india'));
   $('#view-chart').addEventListener('click', () => { state.view = 'chart'; renderSkill(); });
   $('#view-table').addEventListener('click', () => { state.view = 'table'; renderSkill(); });
 
@@ -640,7 +643,7 @@
     else if (e.key === 'r' || e.key === 'R') setMode('raw');
     else if (e.key === 'e' || e.key === 'E') setMode('earned');
     else if (e.key === 'o' || e.key === 'O') toggleObs();
-    else if (e.key === 'z' || e.key === 'Z') setZoom(state.zoom === 'event' ? 'domain' : 'event');
+    else if (e.key === 'z' || e.key === 'Z') { const cycle = { event: 'domain', domain: 'india', india: 'event' }; setZoom(cycle[state.zoom] || 'event'); }
   });
 
   // ---------------------------------------------------------------- theme
