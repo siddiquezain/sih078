@@ -22,7 +22,7 @@ Phase 3 runs in Colab/Kaggle.
 **Date:** 2026-09-24
 **Decision:** Every output file (PNG, SVG, JSON) gets a .provenance.json
 sidecar written by save_sidecar().
-**Reason:** Hard rule §4 in CLAUDE.md.
+**Reason:** Hard rule §4 in docs/BRIEF.md.
 
 ## D-005 — imdlib ≥0.1.22 returns Dataset from get_xarray()
 **Date:** 2026-09-25

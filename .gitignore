@@ -36,3 +36,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Local tool state
+.claude/
+.playwright-mcp/
